@@ -182,7 +182,7 @@ if __name__ == "__main__":
             """Return the number of components in the constraint vector (here, one)."""
             return 1  
 
-    problem = MinimizationProblem(Jhat, bounds=(lb, ub), constraints = [StressConstraint(S_max), ComplianceConstraint(C_max), ExteensionConstraint()])
+    problem = MinimizationProblem(Jhat, bounds=(lb, ub), constraints = [StressConstraint(S_max), ComplianceConstraint(C_max), ExtensionConstraint()])
     parameters = {"acceptable_tol": 1.0e-3, "maximum_iterations": 1000}
 
     solver = IPOPTSolver(problem, parameters=parameters)
