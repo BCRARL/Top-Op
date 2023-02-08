@@ -139,7 +139,7 @@ if __name__ == "__main__":
                 a += m[((i+1)*nely-2):((i+1)*nely-1)]
             return [1-a]
         def jacobian(self, m):
-            a = m.vector().copy()
+            a = m.copy()
             for i in range(nelx):
                 a[i*nely:(i+1)*nely-2] = 0.0
                 a[(i+1)*nely-1] = 1.0
