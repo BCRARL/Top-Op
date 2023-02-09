@@ -136,10 +136,11 @@ if __name__ == "__main__":
             return 1  
 
     class ExtensionConstraint(InequalityConstraint):
+        "Ensure there is some mass above 1 over all points with x coordinate L"
         def function(self, m):
             a = 0.0
             for (Index, Coordinate) in zip(range(len(m)), Coordinates):
-                if Coordinate[0]== L:
+                if Coordinate[0 == L:
                     a += m[Index]**pa
             return [a-1]
 
