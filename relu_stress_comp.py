@@ -113,8 +113,9 @@ if __name__ == "__main__":
 
         def function(self, m):
             self.temp_x.vector()[:] = m
+            u = forward(self.temp_x)
             print("Current control vector (density): ", self.temp_x.vector()[:])
-            s_current = assemble(relu((von_mises(Control(u).tape_value())*(Control(x).tape_value()**0.5))-self.S)**2*dx)
+            s_current = assemble(relu((von_mises(Control(u).tape_value())*(Control(self.temp_x).tape_value()**0.5))-self.S)**2*dx)
             if MPI.rank(MPI.comm_world) == 0:
                 print("Current stress: ", s_current)
 
@@ -122,8 +123,9 @@ if __name__ == "__main__":
 
         def jacobian(self, m):
             self.temp_x.vector()[:] = m
-            J_stress = assemble(relu((von_mises(u)*(x**0.5))-self.S)**2*dx)
-            m_stress = Control(x)
+            u = forward(self.temp_x)
+            J_stress = assemble(relu((von_mises(u)*(self.temp_x**0.5))-self.S)**2*dx)
+            m_stress = Control(self.temp_x)
             dJ_stress = compute_gradient(J_stress, m_stress)
             
             return [-dJ_stress.vector()]
@@ -140,7 +142,7 @@ if __name__ == "__main__":
         def function(self, m):
             a = 0.0
             for (Index, Coordinate) in zip(range(len(m)), Coordinates):
-                if Coordinate[0 == L:
+                if Coordinate[0] == L:
                     a += m[Index]**pa
             return [a-1]
 
@@ -179,8 +181,10 @@ if __name__ == "__main__":
             return [self.C - c_current]
 
         def jacobian(self, m):
-            J_comp = assemble(dot(f, u)*dx)
-            m_comp = Control(x)
+            self.tmpvec.vector()[:]=m
+            self.u = forward(self.tmpvec)
+            J_comp = assemble(dot(f, self.u)*dx)
+            m_comp = Control(self.tmpvec)
             dJ_comp = compute_gradient(J_comp, m_comp)
             print("Computed Derivative: ", dJ_comp.vector()[:])
             return [-dJ_comp.vector()]
