@@ -12,6 +12,7 @@ L = 2.0                                         # Length
 W = 1.0                                         # Width
 p = Constant(5.0)                               # Penalization Factor for SIMP
 p_norm = 1.0                                    # Normalization Parameter
+pa = 5                                          # pnorm order for extension constraint
 q = 0.5                                         # Penalization for Stress
 eps = Constant(1.0e-3)                          # Epsilon value for SIMP to remove singularities
 E = Constant(2.0e+11)                           # Young Modulus
@@ -26,6 +27,7 @@ r = Constant(0.025)                             # Length Parameter for Helmholtz
 
 # Define Mesh
 mesh = RectangleMesh(Point(0.0, 0.0), Point(L, W), nelx, nely)
+Coordinates = mesh.coordinates()
 
 # Define Function Spaces
 U = VectorFunctionSpace(mesh, "Lagrange", 1) # Displacement Function Space
@@ -105,7 +107,7 @@ if __name__ == "__main__":
     # Class for Enforcing Stress Constraint
     class StressConstraint(InequalityConstraint):
         def __init__(self, S):
-            self.S  = float(S)
+            self.S  = S# float(S)
             self.temp_x = Function(X)
             # self.u = interpolate(u, U)
 
@@ -132,18 +134,25 @@ if __name__ == "__main__":
         def length(self):
             """Return the number of components in the constraint vector (here, one)."""
             return 1  
+
     class ExtensionConstraint(InequalityConstraint):
         def function(self, m):
             a = 0.0
-            for i in range(nelx):
-                a += m[((i+1)*nely-2):((i+1)*nely-1)]
-            return [1-a]
+            for (Index, Coordinate) in zip(range(len(m)), Coordinates):
+                if Coordinate[0]== L:
+                    a += m[Index]**pa
+            return [a-1]
+
         def jacobian(self, m):
             a = m.copy()
-            for i in range(nelx):
-                a[i*nely:(i+1)*nely-2] = 0.0
-                a[(i+1)*nely-1] = 1.0
-            return [a] 
+            for (Index, Coordinate) in zip(range(len(m)), Coordinates):
+                if Coordinate[0]== L:
+                    a[Index] = a[Index]**(pa-1)*pa
+                else:
+                    a[Index] = 0.0
+            
+            return [a]
+
         def length(self):
             return 1
         def output_workspace(self):
