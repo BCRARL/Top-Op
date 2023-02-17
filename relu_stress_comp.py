@@ -27,11 +27,12 @@ r = Constant(0.025)                             # Length Parameter for Helmholtz
 
 # Define Mesh
 mesh = RectangleMesh(Point(0.0, 0.0), Point(L, W), nelx, nely)
-Coordinates = mesh.coordinates()
 
 # Define Function Spaces
 U = VectorFunctionSpace(mesh, "Lagrange", 1) # Displacement Function Space
 X = FunctionSpace(mesh, "Lagrange", 1)       # Density Function Space
+
+VC = mesh.coordinates()[dof_to_vertex_map(X)] # This should give the coordinates in the order of the degrees of freedom
 
 # SIMP Function for Intermediate Density Penalization
 def simp(x):
@@ -115,7 +116,7 @@ if __name__ == "__main__":
             self.temp_x.vector()[:] = m
             u = forward(self.temp_x)
             print("Current control vector (density): ", self.temp_x.vector()[:])
-            s_current = assemble(relu((von_mises(Control(u).tape_value())*(Control(self.temp_x).tape_value()**0.5))-self.S)**2*dx)
+            s_current = assemble(relu((von_mises(Control(u).tape_value())*(Control(self.temp_x).tape_value()**0.5))-self.S)**2*dx)/len(m)
             if MPI.rank(MPI.comm_world) == 0:
                 print("Current stress: ", s_current)
 
@@ -128,7 +129,7 @@ if __name__ == "__main__":
             m_stress = Control(self.temp_x)
             dJ_stress = compute_gradient(J_stress, m_stress)
             
-            return [-dJ_stress.vector()]
+            return [-dJ_stress.vector()/len(m)]
 
         def output_workspace(self):
             return [0.0]
@@ -139,18 +140,42 @@ if __name__ == "__main__":
 
     class ExtensionConstraint(InequalityConstraint):
         "Ensure there is some mass above 1 over all points with x coordinate L"
+        def __init__(self, _FunctionSpace, _Mesh, _L, _pa=8) -> None:
+            super().__init__()
+            self.L = _L
+            self.pa = _pa
+            self.FunctionSpace = _FunctionSpace
+            self.Coordinates = _Mesh.coordinates()
+            # This provides the indices of the degrees of freedom in functions from X as they coincide with the canonical order of coordinates
+            self.V2D = vertex_to_dof_map(self.FunctionSpace) 
+
         def function(self, m):
-            a = 0.0
-            for (Index, Coordinate) in zip(range(len(m)), Coordinates):
-                if Coordinate[0] == L:
-                    a += m[Index]**pa
-            return [a-1]
+            # a = 0.0
+            a = 1.0
+            v = Function(self.FunctionSpace)
+            v.vector()[:] = m
+
+            for Coordinate in self.Coordinates:
+                if Coordinate[0] == self.L:
+                    # a += v(Coordinate)**self.pa
+                    if v(Coordinate) >= 0.9:
+                        return [0.0]
+                    a += relu(0.9-v(Coordinate))
+                    # a += relu(v(Coordinate)-0.9)
+            # return [a-1]
+            # return [a-0.1]
+            return [-a]
 
         def jacobian(self, m):
             a = m.copy()
-            for (Index, Coordinate) in zip(range(len(m)), Coordinates):
-                if Coordinate[0]== L:
-                    a[Index] = a[Index]**(pa-1)*pa
+            for (Index, Coordinate) in zip(self.V2D, self.Coordinates):
+                if Coordinate[0] == self.L:
+                    if m[Index] >= 0.9:
+                        a[:] = 0.0
+                        return [a]
+                    a[Index] = -(sign(0.9-a[Index])+1)*0.5
+                    # a[Index] = a[Index]**(self.pa-1)*self.pa
+                    # a[Index] = (sign(a[Index]-0.9) + 1)*0.5
                 else:
                     a[Index] = 0.0
             
@@ -196,7 +221,7 @@ if __name__ == "__main__":
             """Return the number of components in the constraint vector (here, one)."""
             return 1  
 
-    problem = MinimizationProblem(Jhat, bounds=(lb, ub), constraints = [StressConstraint(S_max), ComplianceConstraint(C_max), ExtensionConstraint()])
+    problem = MinimizationProblem(Jhat, bounds=(lb, ub), constraints = [StressConstraint(S_max), ComplianceConstraint(C_max), ExtensionConstraint(X, mesh, L, pa)])
     parameters = {"acceptable_tol": 1.0e-3, "maximum_iterations": 1000}
 
     solver = IPOPTSolver(problem, parameters=parameters)
