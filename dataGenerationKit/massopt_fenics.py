@@ -2,13 +2,12 @@ import numpy as np
 import math
 from fenics import *
 from dolfin import *
-# from mshr import *
 import ufl as ufl
 from ufl import nabla_div
 from fenics_adjoint import *
 from pyadjoint import ipopt
 
-from problemStatementGenerator import *
+from problemStatementGenerator import calcRatio
 
 
 def fenicsOptimizer(problemConditions):
@@ -17,12 +16,12 @@ def fenicsOptimizer(problemConditions):
     radii = problemConditions[1]
     loads = problemConditions[2]
 
-    nelx = problemConditions[3]                                   # Number of elements in x-direction
-    nely = problemConditions[4]                             # Number of elements in y-direction
-    nelz = 25                                       # Number of elements in z-direction
-    Y = Constant(problemConditions[5])                           # Young Modulus
-    C_max = Constant(problemConditions[6])                          # Max Compliance
-    S_max = Constant(problemConditions[7])                        # Max Stress
+    nelx = problemConditions[3]
+    nely = problemConditions[4]
+    nelz = 25
+    Y = problemConditions[5]
+    C_max_coeff = problemConditions[6]
+    S_max_coeff = problemConditions[7]
     
     L, W = calcRatio(nelx, nely)
     
@@ -38,7 +37,6 @@ def fenicsOptimizer(problemConditions):
     nu = Constant(0.3)                              # Poisson's Ratio
     r = Constant(0.025)                             # Length Parameter for Helmholtz Filter
     b_rad = Constant(0.025)                         # Radius for boundary around circles
-    
 
     # Define Mesh
     mesh = RectangleMesh(Point(0.0, 0.0), Point(L, W), nelx, nely)
@@ -61,6 +59,10 @@ def fenicsOptimizer(problemConditions):
     circle_1.mark(domains, 1)
     circle_2.mark(domains, 2)
     circle_3.mark(domains, 3)
+
+    d1 = np.count_nonzero(domains.array() == 1)
+    d2 = np.count_nonzero(domains.array() == 2)
+    d3 = np.count_nonzero(domains.array() == 3)
     
     # Define new measures associated with the interior domains
     dx = Measure('dx', domain = mesh, subdomain_data = domains)
@@ -120,16 +122,13 @@ def fenicsOptimizer(problemConditions):
         f_ = F.tabulate_dof_coordinates().reshape(e_.shape[0], mesh.topology().dim(), mesh.topology().dim())
 
         # Generate Load Function over mesh
+        ds_ = np.array([assemble(rho*dx(i)) for i in range(1,4)])
         for i in range(f_.shape[0]):
-            if domains.array()[i] == 1:
-                f.vector().vec().setValueLocal(2*i, F_new[0][0])
-                f.vector().vec().setValueLocal(2*i+1, F_new[1][0])
-            elif domains.array()[i] == 2:
-                f.vector().vec().setValueLocal(2*i, F_new[0][1])
-                f.vector().vec().setValueLocal(2*i+1, F_new[1][1])
-            elif domains.array()[i] == 3:
-                f.vector().vec().setValueLocal(2*i, F_new[0][2])
-                f.vector().vec().setValueLocal(2*i+1, F_new[1][2])
+            j = domains.array()[i]
+            if j in [1,2,3]:
+                k=int(j-1)
+                f.vector().vec().setValueLocal(2*i, F_new[0][k] / ds_[k])
+                f.vector().vec().setValueLocal(2*i+1, F_new[1][k] / ds_[k])
             else:
                 f.vector().vec().setValueLocal(2*i, 0.0)
                 f.vector().vec().setValueLocal(2*i+1, 0.0)
@@ -156,12 +155,13 @@ def fenicsOptimizer(problemConditions):
         u, v = TrialFunction(VDG), TestFunction(VDG)
         a = inner(u, v)*dx
         L = inner(von_Mises, v)*dx(0) + inner(von_Mises, v)*dx(4)
+        A, b = assemble_system(a, L)
         stress = Function(VDG)
-        solve(a==L, stress)
+        solve(A, stress.vector(), b)                                                              
         return stress
 
     # RELU^2 Function for Global Stress Constraint Computation
-    def relu(x):
+    def relu(x):                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
         return (x * (ufl.sign(x) + 1) * 0.5) ** 2
 
     # Helmholtz Filter for Design Variables. Helps remove checkerboarding and introduces mesh independency.
@@ -189,8 +189,9 @@ def fenicsOptimizer(problemConditions):
         f = generate_loads(rho)
         a = simp(rho)*inner(sigma(u), strain(v))*dx
         L = dot(f, v)*dx
+        A, b = assemble_system(a, L)
         u = Function(U)
-        solve(a == L, u)
+        solve(A, u.vector(), b)
         return (f, u)
 
     # MAIN
@@ -199,20 +200,31 @@ def fenicsOptimizer(problemConditions):
         (f, u) = forward(x)                 # Forward problem
         vm = von_mises(u)                   # Calculate Von Mises Stress for outer subdomain
 
-        print("Max Von Mises = ", max(vm.vector()[:]))
-        File("output2/domains.pvd") << domains
+        C_min = assemble(dot(f, u)*dx)
+        S_min = vm.vector()[:].max()
+        C_max = C_min*C_max_coeff
+        S_max = S_min*S_max_coeff
 
-        controls = File("output2/control_iterations.pvd")
-        x_viz = Function(X, name="ControlVisualisation")
+        print("Loads: ", loads)
+        print("Young's Modulus: ", Y)
+        print("C_max: ", C_max)
+        print("S_max: ", S_max)
+        print("Circle posistions: ", circle_coords)
+        print("Circle radii: ", radii)
 
+        solution_list = []
+        objective_list = []
+        derivative_list = []
         def derivative_cb(j, dj, m):
-            x_viz.assign(m)
-            controls << x_viz
+            #solution_list.append(m.vector()[:])
+            solution_list.append(m.compute_vertex_values())
+            objective_list.append(j)
+            derivative_list.append(dj.compute_vertex_values())
             
         # Objective Functional to be Minimized
         J = assemble(x*dx(0))
         m = Control(x)  # Control
-        Jhat = ReducedFunctional(J, m) # Reduced Functional
+        Jhat = ReducedFunctional(J, m, derivative_cb_post = derivative_cb) # Reduced Functional
 
         lb = 0.0  # Inferior
         ub = 1.0  # Superior
@@ -245,34 +257,65 @@ def fenicsOptimizer(problemConditions):
                 """Return the number of components in the constraint vector (here, one)."""
                 return 1
             
+        # # Class for Enforcing Stress Constraint
+        # class StressConstraint(InequalityConstraint):
+        #     def __init__(self, S, q, p_norm):
+        #         self.S  = float(S)
+        #         self.q = float(q)
+        #         self.p_norm = float(p_norm)
+        #         self.temp_x = Function(X)
+
+        #     def function(self, m):
+        #         self.temp_x.vector()[:] = m
+        #         print("Current control vector (density): ", self.temp_x.vector()[:])
+        #         integral = assemble((((Control(vm).tape_value()*(Control(x).tape_value()**self.q))/self.S)**self.p_norm)*dx)
+        #         s_current = 1.0 - (integral ** (1.0/self.p_norm))
+        #         if MPI.rank(MPI.comm_world) == 0:
+        #             print("Current stress integral: ", integral)
+        #             print("Current stress constraint: ", s_current)
+
+        #         return [s_current]
+
+        #     def jacobian(self, m):
+        #         J_stress = assemble((((vm*(x**self.q))/self.S)**self.p_norm)*dx)
+        #         integral = assemble((((Control(vm).tape_value()*(Control(x).tape_value()**self.q))/self.S)**self.p_norm)*dx)
+        #         print("J_Stress: ", J_stress)
+        #         m_stress = Control(x)
+        #         dJ_stress = compute_gradient(J_stress, m_stress)
+        #         print("Derivative: ", dJ_stress.vector()[:])
+        #         dJ_stress.vector()[:] = np.multiply((1.0/self.p_norm) * np.power(integral, ((1.0/self.p_norm)-1.0)), dJ_stress.vector()[:])
+        #         print("Computed Derivative: ", -dJ_stress.vector()[:])
+        #         return [-dJ_stress.vector()]
+
+        #     def output_workspace(self):
+        #         return [0.0]
+
+        #     def length(self):
+        #         """Return the number of components in the constraint vector (here, one)."""
+        #         return 1
+
         # Class for Enforcing Stress Constraint
         class StressConstraint(InequalityConstraint):
-            def __init__(self, S, q, p_norm):
+            def __init__(self, S, q):
                 self.S  = float(S)
                 self.q = float(q)
-                self.p_norm = float(p_norm)
                 self.temp_x = Function(X)
 
             def function(self, m):
                 self.temp_x.vector()[:] = m
                 print("Current control vector (density): ", self.temp_x.vector()[:])
-                integral = assemble((((Control(vm).tape_value()*(Control(x).tape_value()**self.q))/self.S)**self.p_norm)*dx)
-                s_current = 1.0 - (integral ** (1.0/self.p_norm))
+                s_current = assemble(relu(Control(vm).tape_value()*(Control(x).tape_value()**self.q)-self.S)*dx)
                 if MPI.rank(MPI.comm_world) == 0:
-                    print("Current stress integral: ", integral)
-                    print("Current stress constraint: ", s_current)
+                    print("Current stress: ", s_current)
 
-                return [s_current]
+                return [-s_current]
 
             def jacobian(self, m):
-                J_stress = assemble((((vm*(x**self.q))/self.S)**self.p_norm)*dx)
-                integral = assemble((((Control(vm).tape_value()*(Control(x).tape_value()**self.q))/self.S)**self.p_norm)*dx)
-                print("J_Stress: ", J_stress)
+                self.temp_x.vector()[:] = m
+                J_stress = assemble(relu(vm*(x**self.q)-self.S)*dx)
                 m_stress = Control(x)
                 dJ_stress = compute_gradient(J_stress, m_stress)
-                print("Derivative: ", dJ_stress.vector()[:])
-                dJ_stress.vector()[:] = np.multiply((1.0/self.p_norm) * np.power(integral, ((1.0/self.p_norm)-1.0)), dJ_stress.vector()[:])
-                print("Computed Derivative: ", -dJ_stress.vector()[:])
+                
                 return [-dJ_stress.vector()]
 
             def output_workspace(self):
@@ -283,17 +326,80 @@ def fenicsOptimizer(problemConditions):
                 return 1
 
 
-        problem = MinimizationProblem(Jhat, bounds=(lb, ub), constraints = [ComplianceConstraint(C_max), StressConstraint(S_max, q, p_norm)])
-        parameters = {"acceptable_tol": 1.0e-3, "maximum_iterations": 300}
+        problem = MinimizationProblem(Jhat, bounds=(lb, ub), constraints = [ComplianceConstraint(C_max), StressConstraint(S_max, q)])
+        parameters = {"acceptable_tol": 1.0e-3, "maximum_iterations": 150, "output_file": 'ipoptOut.txt', "file_print_level": 3}
 
         solver = IPOPTSolver(problem, parameters=parameters)
         rho_opt = solver.solve()
+
+        converged = False
+        with open('ipoptOut.txt', 'r') as f:
+            last_line = f.readlines()[-1]
+            if last_line == "EXIT: Optimal Solution Found.\n" or last_line == "EXIT: Solved To Acceptable Level.\n":
+                converged = True
+
         (f_final, u_opt) = forward(rho_opt)
         vm_opt = von_mises(u_opt)
 
-        File("output2/final_solution.pvd") << rho_opt
-        File("output2/von_mises.pvd") << vm
-        xdmf_filename = XDMFFile(MPI.comm_world, "output2/final_solution.xdmf")
+        File("output/final_solution.pvd") << rho_opt
+        File("output/von_mises.pvd") << vm_opt
+        File("output/domains.pvd") << domains
+
+        sol_file = File("output/solutions.pvd")
+        sols = []
+        for i in range(len(solution_list)):
+            sol = Function(X)
+            sol.vector()[:] = solution_list[i]
+            sols.append(sol)
+
+        for i in range(len(solution_list)):
+            sols[i].rename('sols[i]', 'sols[i]')
+            sol_file << sols[i], i
+
+        der_file = File("output/derivatives.pvd")
+        ders = []
+        for i in range(len(derivative_list)):
+            der = Function(X)
+            der.vector()[:] = derivative_list[i]
+            ders.append(der)
+        
+        for i in range(len(derivative_list)):
+            ders[i].rename('ders[i]', 'ders[i]')
+            der_file << ders[i], i
+
+        xdmf_filename = XDMFFile(MPI.comm_world, "output/final_solution.xdmf")
         xdmf_filename.write(rho_opt)
 
-    main()
+        return solution_list, objective_list, derivative_list, C_max, S_max, converged
+
+    return main()
+
+    
+
+
+    # x = interpolate(Constant(0.99), X)
+    # minChange = 0.001
+    
+    # print("\n\n", problemConditions)
+
+    # iterations = [x.vector()[:]]
+
+    # for i in range(0, numIterations):
+    #     x_prev = x.vector()[:]
+    #     x = main(x, i)
+
+    #     iterArray = x.vector()[:]
+    #     iterations.append(iterArray)
+
+    #     change = np.linalg.norm(iterArray - x_prev, ord=np.inf)
+
+    #     print("\n\n", problemConditions)
+
+    #     if change < minChange:
+    #         print("\n\n\n\nCONVERGED\nCONVERGED\nCONVERGED\n\n\n\n")
+    #         break
+
+
+    # File("output2/iterations/final_solution.pvd") << x
+
+    # return iterations
