@@ -36,14 +36,14 @@ def correctCircleOverlap2(x:float,y:float,circlesArray):
         #Circles are formated as [x_coord,y_coord,radius,forceMagnitude,ForceAngle]
         c1_x = circlesArray[i][0]
         c1_y = circlesArray[i][1]
-        c1_r = circlesArray[i][2]
+        c1_r = circlesArray[i][2] + 0.1
 
         xCorrectionMade = False
         yCorrectionMade = False
 
         #check the circle for the right wall colision
         if(c1_x + c1_r > x):
-            circlesArray[i][0] =  (x-c1_r)
+            circlesArray[i][0] =  round((x-c1_r-0.01), 2)
             #print("Shift {} left to {}:{},{}".format(i,circlesArray[i][0],circlesArray[i][0] * x + c1_r,x))
             xCorrectionMade = True
         
@@ -52,12 +52,12 @@ def correctCircleOverlap2(x:float,y:float,circlesArray):
             if(xCorrectionMade):
                 raise Exception("Error in generating Circles. Circle {} is out of bounds on x-axis and cannot be fixed.".format(i))
             else:
-                circlesArray[i][0] =  c1_r
+                circlesArray[i][0] =  round(c1_r+0.01, 2)
                 #print("Shift {} right to {}:{},{}".format(i,circlesArray[i][0],circlesArray[i][0] * x - c1_r,0))
         
         #check the circle for the floor colision
         if(c1_y + c1_r > y):
-            circlesArray[i][1] =  (y-c1_r)
+            circlesArray[i][1] =  round((y-c1_r-0.01), 2)
             #print("Shift {} down to {}:{},{}".format(i,circlesArray[i][1],circlesArray[i][1] * y + c1_r,y))
             yCorrectionMade = True
         
@@ -66,7 +66,7 @@ def correctCircleOverlap2(x:float,y:float,circlesArray):
             if(yCorrectionMade):
                 raise Exception("Error in generating Circles. Circle {} is out of bounds on x-axis and cannot be fixed.".format(i))
             else:
-                circlesArray[i][1] =  c1_r
+                circlesArray[i][1] =  round(c1_r+0.01, 2)
             #print("Shift {} up to {}:{},{}".format(i,circlesArray[i][1],circlesArray[i][1] * y - c1_r,0))
 
 
@@ -115,13 +115,13 @@ def correctCircleOverlap2(x:float,y:float,circlesArray):
     
     return circlesArray
 
-def createRandomRadius(minRadius:float=.1,maxRadius:float=.4):
+def createRandomRadius(minRadius:float=.1,maxRadius:float=.2):
     radius = (maxRadius-minRadius)*np.random.random() + minRadius
     return radius
 
 def randomCircleGenerator(x,y):
-    x1 = np.random.random()*x
-    y1 = np.random.random()*y
+    x1 = round(np.random.random()*x, 2)
+    y1 = round(np.random.random()*y, 2)
     r1 = createRandomRadius()
     f1 = np.random.normal(10000.0, 3333.0)
     a1 = np.random.random()*2*np.pi
@@ -139,8 +139,8 @@ def forceEquilizer(x,y,circle_1,circle_2):
     magnitude = np.linalg.norm([counterForce_x,counterForce_y],ord=2)
     angle = np.arctan2(counterForce_y,counterForce_x)
 
-    x1 = np.random.random()*x
-    y1 = np.random.random()*y
+    x1 = round(np.random.random()*x, 2)
+    y1 = round(np.random.random()*y, 2)
     r1 = createRandomRadius()
 
     c1 = [x1,y1,r1,magnitude,angle]

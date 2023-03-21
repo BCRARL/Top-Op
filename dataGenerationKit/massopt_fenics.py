@@ -9,7 +9,6 @@ from pyadjoint import ipopt
 
 from problemStatementGenerator import calcRatio
 
-
 def fenicsOptimizer(problemConditions):
 
     circle_coords = problemConditions[0]
@@ -36,7 +35,7 @@ def fenicsOptimizer(problemConditions):
     eps = Constant(1.0e-3)                          # Epsilon value for SIMP to remove singularities
     nu = Constant(0.3)                              # Poisson's Ratio
     r = Constant(0.025)                             # Length Parameter for Helmholtz Filter
-    b_rad = Constant(0.025)                         # Radius for boundary around circles
+    b_rad = Constant(0.02)                         # Radius for boundary around circles
 
     # Define Mesh
     mesh = RectangleMesh(Point(0.0, 0.0), Point(L, W), nelx, nely)
@@ -200,11 +199,22 @@ def fenicsOptimizer(problemConditions):
         (f, u) = forward(x)                 # Forward problem
         vm = von_mises(u)                   # Calculate Von Mises Stress for outer subdomain
 
+        File("output/domains.pvd") << domains
+
+        FX_ = Constant((1,0))
+        FY_ = Constant((0,1))
+        FX = assemble(inner(f, FX_)*dx)
+        FY = assemble(inner(f, FY_)*dx)
+        print("FX: ", FX)
+        print("FY: ", FY)
+
         C_min = assemble(dot(f, u)*dx)
         S_min = vm.vector()[:].max()
         C_max = C_min*C_max_coeff
         S_max = S_min*S_max_coeff
 
+        print("C_min: ", C_min)
+        print("S_min: ", S_min)
         print("Loads: ", loads)
         print("Young's Modulus: ", Y)
         print("C_max: ", C_max)
@@ -213,11 +223,13 @@ def fenicsOptimizer(problemConditions):
         print("Circle radii: ", radii)
 
         solution_list = []
+        solution_list_viewer = []
         objective_list = []
         derivative_list = []
         def derivative_cb(j, dj, m):
             #solution_list.append(m.vector()[:])
             solution_list.append(m.compute_vertex_values())
+            solution_list_viewer.append(m.vector()[:])
             objective_list.append(j)
             derivative_list.append(dj.compute_vertex_values())
             
@@ -327,7 +339,7 @@ def fenicsOptimizer(problemConditions):
 
 
         problem = MinimizationProblem(Jhat, bounds=(lb, ub), constraints = [ComplianceConstraint(C_max), StressConstraint(S_max, q)])
-        parameters = {"acceptable_tol": 1.0e-3, "maximum_iterations": 150, "output_file": 'ipoptOut.txt', "file_print_level": 3}
+        parameters = {"acceptable_tol": 1.0e-2, "maximum_iterations": 150, "output_file": 'ipoptOut.txt', "file_print_level": 3}
 
         solver = IPOPTSolver(problem, parameters=parameters)
         rho_opt = solver.solve()
@@ -343,63 +355,23 @@ def fenicsOptimizer(problemConditions):
 
         File("output/final_solution.pvd") << rho_opt
         File("output/von_mises.pvd") << vm_opt
-        File("output/domains.pvd") << domains
 
         sol_file = File("output/solutions.pvd")
         sols = []
-        for i in range(len(solution_list)):
+        for i in range(len(solution_list_viewer)):
             sol = Function(X)
-            sol.vector()[:] = solution_list[i]
+            sol.vector()[:] = solution_list_viewer[i]
             sols.append(sol)
 
-        for i in range(len(solution_list)):
+        for i in range(len(solution_list_viewer)):
             sols[i].rename('sols[i]', 'sols[i]')
             sol_file << sols[i], i
-
-        der_file = File("output/derivatives.pvd")
-        ders = []
-        for i in range(len(derivative_list)):
-            der = Function(X)
-            der.vector()[:] = derivative_list[i]
-            ders.append(der)
-        
-        for i in range(len(derivative_list)):
-            ders[i].rename('ders[i]', 'ders[i]')
-            der_file << ders[i], i
 
         xdmf_filename = XDMFFile(MPI.comm_world, "output/final_solution.xdmf")
         xdmf_filename.write(rho_opt)
 
+        set_working_tape(Tape())
+
         return solution_list, objective_list, derivative_list, C_max, S_max, converged
 
     return main()
-
-    
-
-
-    # x = interpolate(Constant(0.99), X)
-    # minChange = 0.001
-    
-    # print("\n\n", problemConditions)
-
-    # iterations = [x.vector()[:]]
-
-    # for i in range(0, numIterations):
-    #     x_prev = x.vector()[:]
-    #     x = main(x, i)
-
-    #     iterArray = x.vector()[:]
-    #     iterations.append(iterArray)
-
-    #     change = np.linalg.norm(iterArray - x_prev, ord=np.inf)
-
-    #     print("\n\n", problemConditions)
-
-    #     if change < minChange:
-    #         print("\n\n\n\nCONVERGED\nCONVERGED\nCONVERGED\n\n\n\n")
-    #         break
-
-
-    # File("output2/iterations/final_solution.pvd") << x
-
-    # return iterations
