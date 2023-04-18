@@ -9,7 +9,6 @@ from pyadjoint import ipopt
 
 from problemStatementGenerator import calcRatio
 
-
 def fenicsOptimizer(problemConditions):
 
     circle_coords = problemConditions[0]
@@ -18,29 +17,24 @@ def fenicsOptimizer(problemConditions):
 
     nelx = problemConditions[3]
     nely = problemConditions[4]
-    nelz = problemConditions[5]
-    Y = problemConditions[6]
-    C_max_coeff = problemConditions[7]
-    S_max_coeff = problemConditions[8]
+    nelz = 25
+    Y = problemConditions[5]
+    C_max_coeff = problemConditions[6]
+    S_max_coeff = problemConditions[7]
     
-    L, W, D = calcRatio(nelx, nely, nelz)
-    
+    L, W = calcRatio(nelx, nely)
+    D = 1.0
 
-    # turn off redundant output in parallel
-    # parameters["std_out_all_processes"] = False
-
-    #D = 0.5                                         # Depth
     p = Constant(5.0)                               # Penalization Factor for SIMP
     p_norm = Constant(8.0)                          # P-Normalization Term
     q = Constant(0.5)                               # Relaxation Factor for Stress
     eps = Constant(1.0e-3)                          # Epsilon value for SIMP to remove singularities
     nu = Constant(0.3)                              # Poisson's Ratio
     r = Constant(0.025)                             # Length Parameter for Helmholtz Filter
-    b_rad = Constant(0.02)                         # Radius for boundary around circles
+    b_rad = Constant(0.02)                          # Radius for boundary around circles
 
     # Define Mesh
-    mesh = RectangleMesh(Point(0.0, 0.0), Point(L, W), nelx, nely)
-    mesh3D = BoxMesh(Point(0.0, 0.0, 0.0), Point(L, W, D), nelx, nely, nelz)
+    mesh = BoxMesh(Point(0.0, 0.0, 0.0), Point(L, W, D), nelx, nely, nelz)
 
     # Create Subdomains for Circular Voids / Cylinders and their Borders
     circle_1 = CompiledSubDomain('(x[0]-x_)*(x[0]-x_) + (x[1]-y_)*(x[1]-y_) <= r*r + tol', x_=circle_coords[0][0], y_=circle_coords[1][0], r=radii[0], tol=DOLFIN_EPS)
@@ -61,10 +55,6 @@ def fenicsOptimizer(problemConditions):
     circle_2.mark(domains, 2)
     circle_3.mark(domains, 3)
 
-    d1 = np.count_nonzero(domains.array() == 1)
-    d2 = np.count_nonzero(domains.array() == 2)
-    d3 = np.count_nonzero(domains.array() == 3)
-    
     # Define new measures associated with the interior domains
     dx = Measure('dx', domain = mesh, subdomain_data = domains)
 
@@ -97,7 +87,7 @@ def fenicsOptimizer(problemConditions):
     def generate_loads(rho):
         F_new = np.zeros(loads.shape)
         x_c = np.zeros(loads.shape)
-        (x_,y_) = SpatialCoordinate(mesh)
+        (x_,y_,z_) = SpatialCoordinate(mesh)
 
         # Calculate center of mass 
         cm_x = assemble(rho*x_*dx)/assemble(rho*dx)
@@ -128,11 +118,13 @@ def fenicsOptimizer(problemConditions):
             j = domains.array()[i]
             if j in [1,2,3]:
                 k=int(j-1)
-                f.vector().vec().setValueLocal(2*i, F_new[0][k] / ds_[k])
-                f.vector().vec().setValueLocal(2*i+1, F_new[1][k] / ds_[k])
+                f.vector().vec().setValueLocal(3*i, F_new[0][k] / ds_[k])
+                f.vector().vec().setValueLocal(3*i+1, F_new[1][k] / ds_[k])
+                f.vector().vec().setValueLocal(3*i+2, 0.0)
             else:
-                f.vector().vec().setValueLocal(2*i, 0.0)
-                f.vector().vec().setValueLocal(2*i+1, 0.0)
+                f.vector().vec().setValueLocal(3*i, 0.0)
+                f.vector().vec().setValueLocal(3*i+1, 0.0)
+                f.vector().vec().setValueLocal(3*i+2, 0.0)
         
         return f
 
@@ -158,7 +150,7 @@ def fenicsOptimizer(problemConditions):
         L = inner(von_Mises, v)*dx(0) + inner(von_Mises, v)*dx(4)
         A, b = assemble_system(a, L)
         stress = Function(VDG)
-        solve(A, stress.vector(), b)                                                              
+        solve(A, stress.vector(), b, 'gmres', 'hypre_euclid')                                                              
         return stress
 
     # RELU^2 Function for Global Stress Constraint Computation
@@ -178,7 +170,7 @@ def fenicsOptimizer(problemConditions):
 
         A, b = assemble_system(a, L)
         rho = Function(V)
-        solve(A, rho.vector(), b)
+        solve(A, rho.vector(), b, 'gmres', 'hypre_euclid')
 
         return rho
 
@@ -192,7 +184,7 @@ def fenicsOptimizer(problemConditions):
         L = dot(f, v)*dx
         A, b = assemble_system(a, L)
         u = Function(U)
-        solve(A, u.vector(), b)
+        solve(A, u.vector(), b, 'gmres', 'hypre_euclid')
         return (f, u)
 
     # MAIN
@@ -215,11 +207,12 @@ def fenicsOptimizer(problemConditions):
         print("Circle posistions: ", circle_coords)
         print("Circle radii: ", radii)
 
+        solution_list_viewer = []
         solution_list = []
         objective_list = []
         derivative_list = []
         def derivative_cb(j, dj, m):
-            #solution_list.append(m.vector()[:])
+            solution_list_viewer.append(m.vector()[:])
             solution_list.append(m.compute_vertex_values())
             objective_list.append(j)
             derivative_list.append(dj.compute_vertex_values())
@@ -297,14 +290,6 @@ def fenicsOptimizer(problemConditions):
         #         """Return the number of components in the constraint vector (here, one)."""
         #         return 1
 
-        class SymTransZ(Expression):
-            'Given u: (x, y) --> R create v: (x, y, z) --> R, v(x, y, z) = u(x, y).'
-            def __init__(self, u):
-                self.u = u
-
-            def eval(self, values, x):
-                values[0] = self.u(x[0], x[1])
-
         # Class for Enforcing Stress Constraint
         class StressConstraint(InequalityConstraint):
             def __init__(self, S, q):
@@ -338,21 +323,10 @@ def fenicsOptimizer(problemConditions):
 
 
         problem = MinimizationProblem(Jhat, bounds=(lb, ub), constraints = [ComplianceConstraint(C_max), StressConstraint(S_max, q)])
-        parameters = {"acceptable_tol": 1.0e-2, "maximum_iterations": 150, "output_file": 'ipoptOut.txt', "file_print_level": 3}
+        parameters = {"acceptable_tol": 1.0e-2, "maximum_iterations": 300, "output_file": 'ipoptOut.txt', "file_print_level": 3}
 
         solver = IPOPTSolver(problem, parameters=parameters)
         rho_opt = solver.solve()
-
-        u = SymTransZ(rho_opt)
-
-        #converting 2d part into 3d
-        mesh3d = BoxMesh(Point(0.0, 0.0, 0.0), Point(L, W, D), nelx, nely, nelz)
-
-        v = FunctionSpace(mesh3d, 'CG', 1)
-
-        w = interpolate(u, v)
-
-
 
         converged = False
         with open('ipoptOut.txt', 'r') as f:
@@ -363,64 +337,59 @@ def fenicsOptimizer(problemConditions):
         (f_final, u_opt) = forward(rho_opt)
         vm_opt = von_mises(u_opt)
 
-        File("output/final_solution.pvd") << rho_opt
+        File("output/final_output.pvd") << rho_opt
         File("output/von_mises.pvd") << vm_opt
 
         sol_file = File("output/solutions.pvd")
         sols = []
-        for i in range(len(solution_list)):
+        for i in range(len(solution_list_viewer)):
             sol = Function(X)
-            sol.vector()[:] = solution_list[i]
+            sol.vector()[:] = solution_list_viewer[i]
             sols.append(sol)
 
-        for i in range(len(solution_list)):
+        for i in range(len(solution_list_viewer)):
             sols[i].rename('sols[i]', 'sols[i]')
             sol_file << sols[i], i
 
-        der_file = File("output/derivatives.pvd")
-        ders = []
-        for i in range(len(derivative_list)):
-            der = Function(X)
-            der.vector()[:] = derivative_list[i]
-            ders.append(der)
-        
-        for i in range(len(derivative_list)):
-            ders[i].rename('ders[i]', 'ders[i]')
-            der_file << ders[i], i
-
-        xdmf_filename = XDMFFile(MPI.comm_world, "output/final_solution.xdmf")
+        xdmf_filename = XDMFFile(MPI.comm_world, "output/final_output.xdmf")
         xdmf_filename.write(rho_opt)
+
+        set_working_tape(Tape())
 
         return solution_list, objective_list, derivative_list, C_max, S_max, converged
 
     return main()
 
+# Utility Function
+def solution_viewer(x_array):
+    print(len(x_array))
+    mesh = BoxMesh(Point(0.0, 0.0, 0.0), Point(2.0, 1.0, 1.0), 100, 50, 25)
+    X = FunctionSpace(mesh, 'CG', 1)
+    v2d = dof_to_vertex_map(X)
+    # print(v2d)
+    x_ = []
+    for iter in x_array:
+        x_.append(iter[v2d])
+
+    x_array = x_
+    x = Function(X)
+    print(x_array[-1].shape)
+    print(x.vector()[:].shape)
+    x.vector()[:] = x_array[-1]
+
+    File("output/final_solution.pvd") << x
+    print(len(x.vector()[:]))
+
+    sol_file = File("output/solutions.pvd")
+    sols = []
+    for i in range(len(x_array)):
+        sol = Function(X)
+        sol.vector()[:] = x_array[i]
+        sols.append(sol)
+
+    for i in range(len(x_array)):
+        sols[i].rename('sols[i]', 'sols[i]')
+        sol_file << sols[i], i
     
+    return
 
-
-    # x = interpolate(Constant(0.99), X)
-    # minChange = 0.001
-    
-    # print("\n\n", problemConditions)
-
-    # iterations = [x.vector()[:]]
-
-    # for i in range(0, numIterations):
-    #     x_prev = x.vector()[:]
-    #     x = main(x, i)
-
-    #     iterArray = x.vector()[:]
-    #     iterations.append(iterArray)
-
-    #     change = np.linalg.norm(iterArray - x_prev, ord=np.inf)
-
-    #     print("\n\n", problemConditions)
-
-    #     if change < minChange:
-    #         print("\n\n\n\nCONVERGED\nCONVERGED\nCONVERGED\n\n\n\n")
-    #         break
-
-
-    # File("output2/iterations/final_solution.pvd") << x
-
-    # return iterations
