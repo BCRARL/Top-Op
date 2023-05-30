@@ -840,11 +840,9 @@ def plotFormatVector(formatVector,res:int=100,name:str='formatOut'):
     def plotForce(num):
         centerX = circles[0][num] * res//2
         centerY = circles[1][num] * res//2
-        endX = centerX - forces[0][num] * forceScale
-        endY = centerY - forces[1][num] * forceScale
-        x1 = [centerX,endX]
-        y1 = [centerY,endY]
-        ax.plot(x1,y1)
+        dx = forces[0][num] * forceScale
+        dy = forces[1][num] * forceScale
+        ax.arrow(centerX,centerY,dx,dy,width=res/200,color='red')
 
     plotForce(0)
     plotForce(1)
@@ -852,6 +850,7 @@ def plotFormatVector(formatVector,res:int=100,name:str='formatOut'):
         
     
     plt.savefig(str(name) + ".png", format='png')
+
 
 def fenicsAgentToGif(dataPoint):
     """
@@ -903,7 +902,7 @@ def fenicsAgentToGif(dataPoint):
         x,obj,der = unpackIterations(arrays)
         x_array.append(np.reshape(x,(nelx+1,nely+1),order='F'))
     
-    SaveAsGif(x_array,nelx,nely,'FenicsOutput')
+    SaveAsGif(x_array,nelx,nely,'GeneratedPart/FenicsOutput')
     
 def saveStatsForEachIteration(iterationImages,formatVector):
     """
@@ -944,9 +943,10 @@ def visualizeShiftDifferences(dataPoint):
     
 
     print(trueFormatVector)
-    plotFormatVector(trueFormatVector)
+    plotFormatVector(trueFormatVector,name='GeneratedPart/formatOut')
     #saveAsPVD(TruePart,100,50)
     shiftRadius = 2
+    print("Predicting part")
 
     PredictedImages,shiftIndexes = iteratePartWithShift(model,trueFormatVector,numIterations=50,shiftAmnt=shiftRadius)
     
@@ -981,9 +981,9 @@ def visualizeShiftDifferences(dataPoint):
         part = np.reshape(part,(101,51))
         part = shiftImage(part,-shiftX,-shiftY)
         bestImageIterations.append(part)
-    SaveAsGif(bestImageIterations,100,50,"modelOutput")
-    import json
-    json.dump(saveStatsForEachIteration(bestImageIterations,trueFormatVector),open("modelStatsOverIteration.json",'w'))
+    SaveAsGif(bestImageIterations,100,50,"GeneratedPart/modelOutput")
+    #import json
+    #json.dump(saveStatsForEachIteration(bestImageIterations,trueFormatVector),open("modelStatsOverIteration.json",'w'))
     bestPart = np.reshape(actualImages[sortedScoreIndexes[0]],(101*51),order='F')
     # solution_list, objective_list, derivative_list, C_max, S_max, converged = convergenceTester(trueFormatVector,bestPart,0)
     # print(C_max)
@@ -997,15 +997,15 @@ def visualizeShiftDifferences(dataPoint):
 
     compliance,stress = convergenceTester(trueFormatVector,TruePart,1)
     mass = np.sum(TruePart)
-    f = open("ModelComparison.txt",'w')
+    f = open("GeneratedPart/ModelComparison.txt",'w')
 
     f.write("Circle 1: ( {:.2f}, {:.2f} ) radius = {:.3f}\n".format(trueFormatVector[0][0][0],trueFormatVector[0][1][0],trueFormatVector[1][0]))
     f.write("Circle 2: ( {:.2f}, {:.2f} ) radius = {:.3f}\n".format(trueFormatVector[0][0][1],trueFormatVector[0][1][1],trueFormatVector[1][1]))
     f.write("Circle 3: ( {:.2f}, {:.2f} ) radius = {:.3f}\n".format(trueFormatVector[0][0][2],trueFormatVector[0][1][2],trueFormatVector[1][2]))
 
-    f.write("\nForce 1: ( {:.2e}, {:.2e} ) magnitued = {:.3e}\n".format(trueFormatVector[2][0][0],trueFormatVector[2][1][0],np.sqrt(trueFormatVector[2][0][0]**2 + trueFormatVector[2][1][0]**2)))
-    f.write("Force 2: ( {:.2e}, {:.2e} ) magnitued = {:.3e}\n".format(trueFormatVector[2][0][1],trueFormatVector[2][1][1],np.sqrt(trueFormatVector[2][0][1]**2 + trueFormatVector[2][1][1]**2)))
-    f.write("Force 3: ( {:.2e}, {:.2e} ) magnitued = {:.3e}\n".format(trueFormatVector[2][0][2],trueFormatVector[2][1][2],np.sqrt(trueFormatVector[2][0][2]**2 + trueFormatVector[2][1][2]**2)))
+    f.write("\nForce 1: ( {:.2e}, {:.2e} ) magnitude = {:.3e}\n".format(trueFormatVector[2][0][0],trueFormatVector[2][1][0],np.sqrt(trueFormatVector[2][0][0]**2 + trueFormatVector[2][1][0]**2)))
+    f.write("Force 2: ( {:.2e}, {:.2e} ) magnitude = {:.3e}\n".format(trueFormatVector[2][0][1],trueFormatVector[2][1][1],np.sqrt(trueFormatVector[2][0][1]**2 + trueFormatVector[2][1][1]**2)))
+    f.write("Force 3: ( {:.2e}, {:.2e} ) magnitude = {:.3e}\n".format(trueFormatVector[2][0][2],trueFormatVector[2][1][2],np.sqrt(trueFormatVector[2][0][2]**2 + trueFormatVector[2][1][2]**2)))
 
 
     f.write("\nFenics part:\n")
@@ -1050,14 +1050,14 @@ def visualizeShiftDifferences(dataPoint):
 
 if(__name__ == "__main__"):
     #path = r'E:\TopoptGAfileSaves\Mass minimization\AlienWareData\True\100_50_Validation'
-    path = os.path.join(os.getcwd(),'Data','100_50_Validation')
+    path = os.path.join(os.getcwd(),'Data','100_50')
     dataPoints = os.listdir(path)
     i = np.random.randint(0,len(dataPoints)-1)
     print("\n(",i,")\n")
     #scoreValidations(path,200)
     print(dataPoints[i])
     part = visualizeShiftDifferences(os.path.join(path,dataPoints[i]))
-    np.savetxt("out",part)
+    #np.savetxt("out",part)
 
     # trueFormatVector,TruePart,converged = loadFenicPart(os.path.join(path,dataPoints[i]))
     # part_pred = np.ones((101,51))
